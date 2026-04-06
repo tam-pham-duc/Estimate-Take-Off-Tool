@@ -1488,16 +1488,55 @@ function EstimatorAppContent() {
 
   const dependencyMap = useMemo(() => {
     const map: Record<string, string[]> = {};
+    
+    // Track items depending on variables/fields
     for (const itemId in takeoffData) {
       const formula = takeoffData[itemId].custom_formula || DEFAULT_QTY_FORMULA;
       const variables = extractVariablesFromFormula(formula);
       variables.forEach(v => {
-        if (!map[v]) map[v] = [];
-        if (!map[v].includes(itemId)) map[v].push(itemId);
+        const normalized = v.toLowerCase();
+        const aliases = [v];
+        if (normalized === 'qty' || normalized === 'take-off') {
+          aliases.push('qty', 'Take-off');
+        } else if (normalized === 'overage_pct' || normalized === 'overage %') {
+          aliases.push('overage_pct', 'Overage %');
+        } else if (normalized === 'order_qty' || normalized === 'order') {
+          aliases.push('order_qty', 'Order');
+        }
+
+        aliases.forEach(alias => {
+          if (!map[alias]) map[alias] = [];
+          if (!map[alias].includes(itemId)) map[alias].push(itemId);
+        });
       });
     }
+
+    // Track variables depending on other variables/fields
+    customVariables.forEach(cv => {
+      if (cv.formula) {
+        const variables = extractVariablesFromFormula(cv.formula);
+        variables.forEach(v => {
+          const target = `Variable:${cv.name}`;
+          const normalized = v.toLowerCase();
+          const aliases = [v];
+          if (normalized === 'qty' || normalized === 'take-off') {
+            aliases.push('qty', 'Take-off');
+          } else if (normalized === 'overage_pct' || normalized === 'overage %') {
+            aliases.push('overage_pct', 'Overage %');
+          } else if (normalized === 'order_qty' || normalized === 'order') {
+            aliases.push('order_qty', 'Order');
+          }
+
+          aliases.forEach(alias => {
+            if (!map[alias]) map[alias] = [];
+            if (!map[alias].includes(target)) map[alias].push(target);
+          });
+        });
+      }
+    });
+
     return map;
-  }, [formulasHash]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formulasHash, customVariables]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recalculateAffectedItems = useCallback((changedSources: string[], currentVars: CustomVariable[] = customVariables, currentEntityData: Record<string, Record<string, any>> = entityData, currentTakeoffData: Record<string, TakeoffItem> = takeoffData, currentDataTables: DataTable[] = dataTables) => {
     const affectedItems = new Set<string>();
@@ -1509,35 +1548,36 @@ function EstimatorAppContent() {
     while (queue.length > 0) {
       const source = queue.shift()!;
       
+      // Extract the name of the source (e.g., Variable:TotalQty -> TotalQty)
+      const sourceName = source.includes(':') ? source.split(':')[1] : source;
+      
       if (source.startsWith('Variable:')) {
-        const varName = source.split(':')[1];
-        affectedVars.add(varName);
-        
-        currentVars.forEach(v => {
-          if (v.formula && extractVariablesFromFormula(v.formula).includes(varName)) {
-            const nextSource = `Variable:${v.name}`;
-            if (!visited.has(nextSource)) {
-              visited.add(nextSource);
-              queue.push(nextSource);
+        affectedVars.add(sourceName);
+      }
+      
+      // Find what depends on this source in the dependencyMap
+      if (dependencyMap[sourceName]) {
+        dependencyMap[sourceName].forEach(target => {
+          if (target.startsWith('Variable:')) {
+            if (!visited.has(target)) {
+              visited.add(target);
+              queue.push(target);
             }
+          } else {
+            // It's an itemId
+            affectedItems.add(target);
           }
         });
-        
-        if (dependencyMap[varName]) {
-          dependencyMap[varName].forEach(itemId => affectedItems.add(itemId));
-        }
       }
       
+      // Special handling for Field: and BuiltIn:
       if (source.startsWith('Field:') || source.startsWith('BuiltIn:')) {
-        const fieldName = source.split(':')[1];
-        if (dependencyMap[fieldName]) {
-          dependencyMap[fieldName].forEach(itemId => affectedItems.add(itemId));
-        }
+        // These are already handled by the dependencyMap check above
       }
       
+      // Special handling for Item:
       if (source.startsWith('Item:')) {
-        const itemId = source.split(':')[1];
-        affectedItems.add(itemId);
+        affectedItems.add(sourceName);
       }
     }
     
