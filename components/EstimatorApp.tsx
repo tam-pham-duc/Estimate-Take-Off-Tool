@@ -438,7 +438,7 @@ function EstimatorAppContent() {
     
     // Load local data
     const safeParse = (data: string | null, fallback: any = null) => {
-      if (!data) return fallback;
+      if (!data || data.trim() === "") return fallback;
       try {
         return JSON.parse(data);
       } catch (e) {
