@@ -34,14 +34,34 @@ const formulaHighlightPlugin = ViewPlugin.fromClass(class {
       const text = view.state.doc.sliceString(from, to);
       
       let match;
+      // Variables: [Variable Name]
       const varRegex = /\[[a-zA-Z0-9_ %-]+\]/g;
       while ((match = varRegex.exec(text))) {
-        widgets.push(Decoration.mark({ class: "text-amber-600 font-bold bg-amber-50 px-1 rounded" }).range(from + match.index, from + match.index + match[0].length));
+        widgets.push(Decoration.mark({ class: "text-amber-600 font-bold bg-amber-50 px-1 rounded border border-amber-200" }).range(from + match.index, from + match.index + match[0].length));
       }
 
-      const fnRegex = /\b(ROUNDUP|ROUNDDOWN|ROUND|CEILING|FLOOR|MAX|MIN|ABS|SQRT|POWER|IF|AND|OR|NOT)\b/g;
+      // Functions: ROUNDUP, IF, LOOKUP, etc.
+      const fnRegex = /\b(ROUNDUP|ROUNDDOWN|ROUND|CEILING|FLOOR|MAX|MIN|ABS|SQRT|POWER|IF|AND|OR|NOT|LOOKUP)\b/g;
       while ((match = fnRegex.exec(text))) {
         widgets.push(Decoration.mark({ class: "text-blue-600 font-bold" }).range(from + match.index, from + match.index + match[0].length));
+      }
+
+      // Numbers
+      const numRegex = /\b\d+(\.\d+)?\b/g;
+      while ((match = numRegex.exec(text))) {
+        widgets.push(Decoration.mark({ class: "text-emerald-600 font-medium" }).range(from + match.index, from + match.index + match[0].length));
+      }
+
+      // Strings
+      const strRegex = /("[^"]*")|('[^']*')/g;
+      while ((match = strRegex.exec(text))) {
+        widgets.push(Decoration.mark({ class: "text-rose-600 italic" }).range(from + match.index, from + match.index + match[0].length));
+      }
+
+      // Operators
+      const opRegex = /[\+\-\*\/\^=<>!]+/g;
+      while ((match = opRegex.exec(text))) {
+        widgets.push(Decoration.mark({ class: "text-slate-500 font-bold" }).range(from + match.index, from + match.index + match[0].length));
       }
     }
     return Decoration.set(widgets.sort((a, b) => a.from - b.from));
@@ -167,12 +187,18 @@ const getFormulaCompletions = (customVars: CustomVariable[], dynamicCols: Dynami
       { label: 'NOT', type: 'function', info: 'Logical NOT. Ex: NOT([Take-off] == 0)', apply: 'NOT(' },
       { label: 'MAX', type: 'function', info: 'Maximum of values. Ex: MAX([Take-off], 5)', apply: 'MAX(' },
       { label: 'MIN', type: 'function', info: 'Minimum of values. Ex: MIN([Take-off], 100)', apply: 'MIN(' },
+      { label: 'ABS', type: 'function', info: 'Absolute value. Ex: ABS(-5) = 5', apply: 'ABS(' },
+      { label: 'SQRT', type: 'function', info: 'Square root. Ex: SQRT(16) = 4', apply: 'SQRT(' },
+      { label: 'POWER', type: 'function', info: 'Base to the power of exponent. Ex: POWER(2, 3) = 8', apply: 'POWER(' },
       { label: 'CEILING', type: 'function', info: 'Round up to nearest integer. Ex: CEILING([Take-off] / [Order])', apply: 'CEILING(' },
       { label: 'FLOOR', type: 'function', info: 'Round down to nearest integer. Ex: FLOOR([Take-off] / [Order])', apply: 'FLOOR(' },
       { label: 'LOOKUP', type: 'function', info: 'Lookup value in a data table. Ex: LOOKUP("Table", "SearchCol", Value, "ResultCol")', apply: 'LOOKUP(' },
       { label: '[Take-off]', type: 'variable', info: 'Measured Quantity. Ex: [Take-off] * 1.05' },
       { label: '[Overage %]', type: 'variable', info: 'Waste Factor Percentage. Ex: 1 + ([Overage %] / 100)' },
-      { label: '[Order]', type: 'variable', info: 'Package/Divisor. Ex: [Take-off] / [Order]' }
+      { label: '[Order]', type: 'variable', info: 'Package/Divisor. Ex: [Take-off] / [Order]' },
+      // Snippets
+      { label: 'IF snippet', type: 'text', detail: 'IF(cond, t, f)', apply: 'IF( , , )', info: 'Insert IF function template' },
+      { label: 'LOOKUP snippet', type: 'text', detail: 'LOOKUP(table, col, val, res)', apply: 'LOOKUP("", "", , "")', info: 'Insert LOOKUP function template' }
     ]
   };
 };
@@ -660,7 +686,7 @@ function EstimatorAppContent() {
     }
     if (openParens > 0) {
       diagnostics.push({
-        from: doc.length,
+        from: doc.length - 1,
         to: doc.length,
         severity: 'error',
         message: 'Missing closing parenthesis'
@@ -684,15 +710,44 @@ function EstimatorAppContent() {
     }
     if (openBrackets > 0) {
       diagnostics.push({
-        from: doc.length,
+        from: doc.length - 1,
         to: doc.length,
         severity: 'error',
         message: 'Missing closing bracket'
       });
     }
 
+    // Check for unknown variables
+    const varRegex = /\[([^\]]+)\]/g;
+    let match;
+    const knownVars = new Set([
+      'qty', 'overage_pct', 'order_qty', 'take-off', 'overage %', 'order',
+      'Category', 'SubCategory', 'ItemGroup', 'ItemName', 'UOM'
+    ]);
+    customVariables.forEach(v => knownVars.add(v.name));
+    dynamicColumns.forEach(dc => knownVars.add(dc.key));
+    
+    // Add current entity data keys if available
+    const item = catalog.find(i => i.item_id === qtyPanelItemId);
+    if (item) {
+      const scope = resolveDynamicScope(item);
+      Object.keys(scope).forEach(k => knownVars.add(k));
+    }
+
+    while ((match = varRegex.exec(doc)) !== null) {
+      const varName = match[1];
+      if (!knownVars.has(varName)) {
+        diagnostics.push({
+          from: match.index,
+          to: match.index + match[0].length,
+          severity: 'warning',
+          message: `Unknown variable: [${varName}]`
+        });
+      }
+    }
+
     // If basic structure is okay, check evaluate
-    if (diagnostics.length === 0) {
+    if (diagnostics.filter(d => d.severity === 'error').length === 0) {
       const item = catalog.find(i => i.item_id === qtyPanelItemId);
       const validation = validateCustomFormula(doc, customVariables, resolveDynamicScope(item), variableRegistry, dataTables);
       if (!validation.isValid) {
@@ -700,13 +755,13 @@ function EstimatorAppContent() {
           from: 0,
           to: doc.length,
           severity: 'error',
-          message: validation.error || "Invalid formula"
+          message: validation.error || "Invalid formula syntax"
         });
       }
     }
 
     return diagnostics;
-  }), [customVariables, catalog, qtyPanelItemId, resolveDynamicScope, variableRegistry, dataTables]);
+  }), [customVariables, catalog, qtyPanelItemId, resolveDynamicScope, variableRegistry, dataTables, dynamicColumns]);
 
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [itemModalMode, setItemModalMode] = useState<'add' | 'edit'>('add');
