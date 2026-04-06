@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"app/page.tsx -> @/components/EstimatorApp\":{\"id\":\"app/page.tsx -> @/components/EstimatorApp\",\"files\":[\"static/chunks/_app-pages-browser_components_EstimatorApp_tsx.js\"]}}"

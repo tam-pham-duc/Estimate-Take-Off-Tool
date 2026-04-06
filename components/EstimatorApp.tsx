@@ -544,7 +544,7 @@ function EstimatorAppContent() {
     setExpandedGuideSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
   const [variableMappings, setVariableMappings] = useState<Record<string, string>>({});
-  const [customVarModalOpen, setCustomVarModalOpen] = useState(true);
+  const [customVarModalOpen, setCustomVarModalOpen] = useState(false);
   const [editingCustomVar, setEditingCustomVar] = useState<CustomVariable | null>(null);
   const [formulaHelpSearch, setFormulaHelpSearch] = useState("");
 
