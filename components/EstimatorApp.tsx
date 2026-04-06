@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { evaluate } from 'mathjs';
 import { defaultCatalog } from '@/lib/default-catalog';
 import { evaluateMath, evaluateCustomFormula, validateCustomFormula, DEFAULT_QTY_FORMULA, getUniqueVals, recalculateCustomVariables, extractVariablesFromFormula } from '@/lib/estimator-utils';
 import { normalizeKey } from '@/services/formulaEngine';
@@ -317,7 +318,102 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-const FormulaToolbar = ({ onInsert }: { onInsert: (text: string) => void }) => {
+const CalculatorWidget = ({ isOpen, onClose, onInsert }: { isOpen: boolean, onClose: () => void, onInsert: (val: string) => void }) => {
+  const [expression, setExpression] = useState("");
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const calculate = () => {
+    try {
+      const res = evaluate(expression);
+      setResult(String(res));
+      setError(null);
+    } catch (err) {
+      setError("Invalid expression");
+      setResult(null);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2">
+            <Calculator size={18} className="text-blue-500" />
+            Quick Calculator
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+        
+        <div className="space-y-3">
+          <div>
+            <input 
+              type="text" 
+              value={expression}
+              onChange={(e) => setExpression(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && calculate()}
+              placeholder="Enter expression (e.g. 2 + 2 * 5)"
+              className="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              autoFocus
+            />
+          </div>
+          
+          <div className="flex gap-2">
+            <button 
+              onClick={calculate}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-bold transition"
+            >
+              Calculate
+            </button>
+            <button 
+              onClick={() => setExpression("")}
+              className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2 rounded text-sm font-bold transition"
+            >
+              Clear
+            </button>
+          </div>
+
+          {result !== null && (
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded">
+              <div className="text-xs text-blue-600 font-bold uppercase mb-1">Result</div>
+              <div className="text-xl font-mono font-bold text-blue-900 break-all">{result}</div>
+              <button 
+                onClick={() => { onInsert(result); onClose(); }}
+                className="mt-2 w-full bg-white border border-blue-200 hover:bg-blue-50 text-blue-600 py-1 rounded text-xs font-bold transition flex items-center justify-center gap-1"
+              >
+                <Plus size={12} /> Insert into Formula
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="p-2 bg-red-50 border border-red-100 rounded text-red-600 text-xs font-medium">
+              {error}
+            </div>
+          )}
+
+          <div className="grid grid-cols-4 gap-1 pt-2">
+            {['7','8','9','/','4','5','6','*','1','2','3','-','0','.','(',')','+','^'].map(btn => (
+              <button 
+                key={btn}
+                onClick={() => setExpression(prev => prev + btn)}
+                className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded text-sm font-medium transition"
+              >
+                {btn}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FormulaToolbar = ({ onInsert, onOpenCalculator }: { onInsert: (text: string) => void, onOpenCalculator?: () => void }) => {
   const functions = [
     { label: 'IF', text: 'IF(condition, true_val, false_val)' },
     { label: 'ROUNDUP', text: 'ROUNDUP(value)' },
@@ -328,24 +424,50 @@ const FormulaToolbar = ({ onInsert }: { onInsert: (text: string) => void }) => {
   ];
 
   return (
-    <div className="flex flex-wrap gap-1 p-1 bg-slate-100 border-b border-slate-200 text-xs">
-      {functions.map(fn => (
+    <div className="flex flex-wrap items-center justify-between p-1 bg-slate-100 border-b border-slate-200 text-xs">
+      <div className="flex flex-wrap gap-1">
+        {functions.map(fn => (
+          <button
+            key={fn.label}
+            type="button"
+            onClick={(e) => { e.preventDefault(); onInsert(fn.text); }}
+            className="px-2 py-1 bg-white border border-slate-300 rounded hover:bg-slate-50 text-slate-700 font-mono transition-colors"
+            title={`Insert ${fn.label} function`}
+          >
+            {fn.label}
+          </button>
+        ))}
+      </div>
+      {onOpenCalculator && (
         <button
-          key={fn.label}
           type="button"
-          onClick={(e) => { e.preventDefault(); onInsert(fn.text); }}
-          className="px-2 py-1 bg-white border border-slate-300 rounded hover:bg-slate-50 text-slate-700 font-mono transition-colors"
-          title={`Insert ${fn.label} function`}
+          onClick={(e) => { e.preventDefault(); onOpenCalculator(); }}
+          className="px-2 py-1 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 text-blue-600 font-bold flex items-center gap-1 transition-colors"
+          title="Open Quick Calculator"
         >
-          {fn.label}
+          <Calculator size={14} />
+          Calc
         </button>
-      ))}
+      )}
     </div>
   );
 };
 
 function EstimatorAppContent() {
   const [isMounted, setIsMounted] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [calculatorInsertFn, setCalculatorInsertFn] = useState<((val: string) => void) | null>(null);
+
+  const openCalculator = (insertFn: (val: string) => void) => {
+    setCalculatorInsertFn(() => insertFn);
+    setCalculatorOpen(true);
+  };
+
+  const handleCalculatorInsert = (val: string) => {
+    if (calculatorInsertFn) {
+      calculatorInsertFn(val);
+    }
+  };
   const [catalog, setCatalog] = useState<Item[]>(defaultCatalog);
   const [takeoffData, setTakeoffData] = useState<Record<string, TakeoffItem>>({});
   const [actionHistory, setActionHistory] = useState<HistoryRecord[]>([]);
@@ -4910,7 +5032,10 @@ function EstimatorAppContent() {
                 )}
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">Formula</label>
-                  <FormulaToolbar onInsert={(text) => insertIntoEditor(ftFormulaRef, text, setFtFormula, ftFormula)} />
+                  <FormulaToolbar 
+                    onInsert={(text) => insertIntoEditor(ftFormulaRef, text, setFtFormula, ftFormula)} 
+                    onOpenCalculator={() => openCalculator((val) => insertIntoEditor(ftFormulaRef, val, setFtFormula, ftFormula))}
+                  />
                   <div className="border border-indigo-200 rounded overflow-hidden focus-within:ring-2 focus-within:ring-indigo-200">
                     <CodeMirror
                       ref={ftFormulaRef}
@@ -5162,7 +5287,10 @@ function EstimatorAppContent() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">Value or Formula</label>
-                  <FormulaToolbar onInsert={(text) => insertIntoEditor(cvFormulaRef, text, setCvFormula, cvFormula)} />
+                  <FormulaToolbar 
+                    onInsert={(text) => insertIntoEditor(cvFormulaRef, text, setCvFormula, cvFormula)} 
+                    onOpenCalculator={() => openCalculator((val) => insertIntoEditor(cvFormulaRef, val, setCvFormula, cvFormula))}
+                  />
                   <div className="border border-amber-200 rounded overflow-hidden focus-within:ring-2 focus-within:ring-amber-200">
                     <CodeMirror
                       ref={cvFormulaRef}
@@ -5432,7 +5560,10 @@ function EstimatorAppContent() {
                     </div>
                   )}
                 </div>
-                <FormulaToolbar onInsert={(text) => insertIntoEditor(formulaInputRef, text, setCustomFormula, customFormula)} />
+                <FormulaToolbar 
+                  onInsert={(text) => insertIntoEditor(formulaInputRef, text, setCustomFormula, customFormula)} 
+                  onOpenCalculator={() => openCalculator((val) => insertIntoEditor(formulaInputRef, val, setCustomFormula, customFormula))}
+                />
                 <div className="border border-emerald-400 rounded overflow-hidden focus-within:ring-2 focus-within:ring-emerald-200">
                   <CodeMirror
                     ref={formulaInputRef}
@@ -7279,6 +7410,11 @@ function EstimatorAppContent() {
       )}
 
       {/* Auto-save Templates Modal removed for local mode */}
+      <CalculatorWidget 
+        isOpen={calculatorOpen} 
+        onClose={() => setCalculatorOpen(false)} 
+        onInsert={handleCalculatorInsert} 
+      />
     </div>
   );
 }

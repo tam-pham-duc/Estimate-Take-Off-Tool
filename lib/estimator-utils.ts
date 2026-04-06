@@ -32,57 +32,109 @@ export function getUniqueVals<T>(array: T[], key: keyof T): string[] {
 
 export function recalculateCustomVariables(variables: CustomVariable[]): CustomVariable[] {
   const newVars = [...variables];
+  const varMap: Record<string, CustomVariable> = {};
   const scope: Record<string, number> = {};
   
-  // Initialize scope with 0
-  newVars.forEach(v => scope[normalizeKey(v.name)] = 0);
-  
-  // Simple iterative approach for dependencies (could be improved with a graph)
-  for (let i = 0; i < 5; i++) { // Max 5 passes for nested dependencies
-    let changed = false;
-    newVars.forEach(v => {
-      if (v.formula) {
-        try {
-          const context: Record<string, any> = { ...scope };
-          // Add math functions
-          context['ROUNDUP'] = (val: number, decimals: number = 0) => {
-            const multiplier = Math.pow(10, decimals);
-            return Math.ceil(val * multiplier) / multiplier;
-          };
-          context['ROUNDDOWN'] = (val: number, decimals: number = 0) => {
-            const multiplier = Math.pow(10, decimals);
-            return Math.floor(val * multiplier) / multiplier;
-          };
-          context['ROUND'] = (val: number, decimals: number = 0) => {
-            const multiplier = Math.pow(10, decimals);
-            return Math.round(val * multiplier) / multiplier;
-          };
-          context['IF'] = (condition: any, trueVal: any, falseVal: any) => condition ? trueVal : falseVal;
-          context['AND'] = (...args: any[]) => args.every(Boolean);
-          context['OR'] = (...args: any[]) => args.some(Boolean);
-          context['NOT'] = (val: any) => !val;
-          context['MAX'] = Math.max;
-          context['MIN'] = Math.min;
-          context['CEILING'] = Math.ceil;
-          context['FLOOR'] = Math.floor;
-          context['ABS'] = Math.abs;
-          context['SQRT'] = Math.sqrt;
-          context['POWER'] = Math.pow;
+  // Initialize scope and map
+  newVars.forEach(v => {
+    const key = normalizeKey(v.name);
+    varMap[key] = v;
+    scope[key] = 0;
+  });
 
-          const result = evaluateFormula(v.formula, context);
-          if (typeof result === 'number' && result !== scope[normalizeKey(v.name)]) {
-            scope[normalizeKey(v.name)] = result;
-            v.value = result;
-            changed = true;
-          }
-        } catch (e) {
-          v.value = 0;
-          scope[normalizeKey(v.name)] = 0;
+  // Build dependency graph
+  const adj: Record<string, string[]> = {};
+  const inDegree: Record<string, number> = {};
+  
+  newVars.forEach(v => {
+    const targetKey = normalizeKey(v.name);
+    if (!inDegree[targetKey]) inDegree[targetKey] = 0;
+    
+    if (v.formula) {
+      const deps = extractVariablesFromFormula(v.formula);
+      deps.forEach(d => {
+        const sourceKey = normalizeKey(d);
+        if (varMap[sourceKey]) {
+          if (!adj[sourceKey]) adj[sourceKey] = [];
+          adj[sourceKey].push(targetKey);
+          inDegree[targetKey]++;
         }
-      }
-    });
-    if (!changed) break;
+      });
+    }
+  });
+
+  // Topological sort (Kahn's algorithm)
+  const queue: string[] = [];
+  Object.keys(varMap).forEach(key => {
+    if ((inDegree[key] || 0) === 0) {
+      queue.push(key);
+    }
+  });
+
+  const sorted: string[] = [];
+  while (queue.length > 0) {
+    const u = queue.shift()!;
+    sorted.push(u);
+    
+    if (adj[u]) {
+      adj[u].forEach(v => {
+        inDegree[v]--;
+        if (inDegree[v] === 0) {
+          queue.push(v);
+        }
+      });
+    }
   }
+
+  // Handle cycles or missing variables by adding remaining variables
+  if (sorted.length < Object.keys(varMap).length) {
+    Object.keys(varMap).forEach(key => {
+      if (!sorted.includes(key)) sorted.push(key);
+    });
+  }
+
+  // Calculate in sorted order
+  sorted.forEach(key => {
+    const v = varMap[key];
+    if (v && v.formula) {
+      try {
+        const context: Record<string, any> = { ...scope };
+        // Add math functions
+        context['ROUNDUP'] = (val: number, decimals: number = 0) => {
+          const multiplier = Math.pow(10, decimals);
+          return Math.ceil(val * multiplier) / multiplier;
+        };
+        context['ROUNDDOWN'] = (val: number, decimals: number = 0) => {
+          const multiplier = Math.pow(10, decimals);
+          return Math.floor(val * multiplier) / multiplier;
+        };
+        context['ROUND'] = (val: number, decimals: number = 0) => {
+          const multiplier = Math.pow(10, decimals);
+          return Math.round(val * multiplier) / multiplier;
+        };
+        context['IF'] = (condition: any, trueVal: any, falseVal: any) => condition ? trueVal : falseVal;
+        context['AND'] = (...args: any[]) => args.every(Boolean);
+        context['OR'] = (...args: any[]) => args.some(Boolean);
+        context['NOT'] = (val: any) => !val;
+        context['MAX'] = Math.max;
+        context['MIN'] = Math.min;
+        context['CEILING'] = Math.ceil;
+        context['FLOOR'] = Math.floor;
+        context['ABS'] = Math.abs;
+        context['SQRT'] = Math.sqrt;
+        context['POWER'] = Math.pow;
+
+        const result = evaluateFormula(v.formula, context);
+        if (typeof result === 'number') {
+          scope[key] = result;
+          v.value = result;
+        }
+      } catch (e) {
+        v.value = 0;
+        scope[key] = 0;
+      }
+    }
+  });
   
   return newVars;
 }
