@@ -1630,53 +1630,74 @@ function EstimatorAppContent() {
   };
 
   const updateTakeoffData = (itemId: string, field: keyof TakeoffItem, value: any, instruction: string, itemName: string) => {
-    setTakeoffData(prev => {
-      const newData = { ...prev };
-      if (!newData[itemId]) {
-        let defaultOverage = "";
-        const match = instruction.match(/(\d+)%\s*overage/i);
-        if (match) defaultOverage = match[1];
-        newData[itemId] = {
-          in_scope: false, spec: "", qty: "", measured_qty: "",
-          overage_pct: defaultOverage, order_qty: "", evidence: "",
-          qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA,
-          unit_price: ""
-        };
+    const newData = { ...takeoffData };
+    if (!newData[itemId]) {
+      let defaultOverage = "";
+      const match = instruction.match(/(\d+)%\s*overage/i);
+      if (match) defaultOverage = match[1];
+      newData[itemId] = {
+        in_scope: false, spec: "", qty: "", measured_qty: "",
+        overage_pct: defaultOverage, order_qty: "", evidence: "",
+        qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA,
+        unit_price: ""
+      };
+    }
+
+    let finalValue = value;
+    if (['qty', 'order_qty', 'overage_pct', 'unit_price'].includes(field) && typeof value === 'string') {
+      const evaluated = evaluateMath(value);
+      if (evaluated !== "") finalValue = evaluated;
+    }
+
+    newData[itemId] = { ...newData[itemId], [field]: finalValue };
+
+    if (field === 'in_scope' && !finalValue) {
+      newData[itemId].qty = "";
+      newData[itemId].measured_qty = "";
+      newData[itemId].order_qty = "";
+    }
+
+    let finalTakeoffData = newData;
+
+    if (['qty', 'overage_pct', 'order_qty'].includes(field) || (field === 'in_scope' && finalValue)) {
+      // Recalculate THIS item immediately for better UX
+      if (newData[itemId].qty_mode !== 'manual') {
+        const item = catalog.find(i => i.item_id === itemId);
+        if (item) {
+          const formula = newData[itemId].custom_formula || DEFAULT_QTY_FORMULA;
+          const scope = resolveDynamicScope(item, dynamicColumns);
+          newData[itemId].measured_qty = evaluateCustomFormula(
+            formula,
+            newData[itemId].qty,
+            newData[itemId].overage_pct !== "" ? newData[itemId].overage_pct : defaultOveragePct,
+            newData[itemId].order_qty,
+            customVariables,
+            scope,
+            dataTables
+          ).toString();
+        }
       }
-
-      let finalValue = value;
-      if (['qty', 'order_qty', 'overage_pct', 'unit_price'].includes(field) && typeof value === 'string') {
-        const evaluated = evaluateMath(value);
-        if (evaluated !== "") finalValue = evaluated;
-      }
-
-      newData[itemId] = { ...newData[itemId], [field]: finalValue };
-
-      if (field === 'in_scope' && !finalValue) {
-        newData[itemId].qty = "";
-        newData[itemId].measured_qty = "";
-        newData[itemId].order_qty = "";
-      }
-
-      if (['qty', 'overage_pct', 'order_qty'].includes(field) || (field === 'in_scope' && finalValue)) {
-        const source = field === 'qty' ? 'BuiltIn:Take-off' : (field === 'overage_pct' ? 'BuiltIn:Overage %' : (field === 'order_qty' ? 'BuiltIn:Order' : ''));
-        setTimeout(() => {
-          const sources = [`Item:${itemId}`];
-          if (source) sources.push(source);
-          recalculateAffectedItems(sources);
-        }, 0);
-      }
-
-      const actionDesc = field === 'in_scope' 
-        ? (finalValue ? `Added Scope: ${itemName}` : `Removed Scope: ${itemName}`) 
-        : `Updated ${field} for ${itemName}`;
       
-      if (field === 'in_scope') {
-        setTimeout(() => recordHistory(actionDesc, newData, catalog, projectName, clientName), 0);
-      }
+      const source = field === 'qty' ? 'BuiltIn:Take-off' : (field === 'overage_pct' ? 'BuiltIn:Overage %' : (field === 'order_qty' ? 'BuiltIn:Order' : ''));
+      const sources = [`Item:${itemId}`];
+      if (source) sources.push(source);
       
-      return newData;
-    });
+      const result = recalculateAffectedItems(sources, customVariables, entityData, newData);
+      finalTakeoffData = result.newData;
+      
+      // If recalculateAffectedItems didn't call setTakeoffData (no changes in other items),
+      // we still need to update the state for the current item change.
+      if (!result.hasChanges) {
+        setTakeoffData(finalTakeoffData);
+      }
+    } else {
+      setTakeoffData(newData);
+    }
+
+    if (field === 'in_scope') {
+      const actionDesc = finalValue ? `Added Scope: ${itemName}` : `Removed Scope: ${itemName}`;
+      recordHistory(actionDesc, finalTakeoffData, catalog, projectName, clientName);
+    }
   };
 
   const toggleCollapse = (key: string) => {
