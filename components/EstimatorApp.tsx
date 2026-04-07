@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import Papa from 'papaparse';
 import { evaluate } from 'mathjs';
 import { defaultCatalog } from '@/lib/default-catalog';
 import { evaluateMath, evaluateCustomFormula, validateCustomFormula, DEFAULT_QTY_FORMULA, getUniqueVals, recalculateCustomVariables, extractVariablesFromFormula } from '@/lib/estimator-utils';
@@ -637,18 +636,22 @@ function EstimatorAppContent() {
     const autoSavedTemplates = localStorage.getItem('autoSavedTemplates');
 
     if (autoSavedProject) {
-      const parsedProject = safeParse(autoSavedProject);
-      if (parsedProject) {
+      try {
+        const parsedProject = JSON.parse(autoSavedProject);
         setAutoSaveData(parsedProject);
         setAutoSaveModalOpen(true);
+      } catch (e) {
+        console.error("Failed to parse autoSavedProject", e);
       }
     }
 
     if (autoSavedTemplates) {
-      const parsedTemplates = safeParse(autoSavedTemplates);
-      if (parsedTemplates) {
+      try {
+        const parsedTemplates = JSON.parse(autoSavedTemplates);
         setAutoSaveTemplatesData(parsedTemplates);
         setAutoSaveTemplatesModalOpen(true);
+      } catch (e) {
+        console.error("Failed to parse autoSavedTemplates", e);
       }
     }
   }, []);
@@ -1050,12 +1053,7 @@ function EstimatorAppContent() {
     reader.onload = async (e) => {
       try {
         setIsImporting(true);
-        const resultText = e.target?.result as string;
-        if (!resultText || resultText.trim() === "") {
-          alert("Backup file is empty.");
-          return;
-        }
-        const backup = JSON.parse(resultText) as FullBackup;
+        const backup = JSON.parse(e.target?.result as string) as FullBackup;
         
         if (window.confirm("This will overwrite ALL current data with the backup. Are you sure?")) {
           if (backup.catalog) setCatalog(backup.catalog);
@@ -2446,8 +2444,7 @@ function EstimatorAppContent() {
     if (bomExportOptions.includeReference) headers.push("REFERENCE");
     headers.push("Rule / Note");
 
-    const escapeCSV = (text: string) => `"${(text || '').toString().replace(/"/g, '""')}"`;
-    let csvContent = headers.map(h => escapeCSV(h)).join(",") + "\n";
+    let csvContent = headers.join(",") + "\n";
     let hasItems = false;
 
     for (const [itemId, data] of Object.entries(freshTakeoffData)) {
@@ -2457,6 +2454,7 @@ function EstimatorAppContent() {
         const itemInfo = catalog.find(i => i.item_id === itemId);
         if (!itemInfo) continue;
 
+        const escapeCSV = (text: string) => `"${(text || '').toString().replace(/"/g, '""')}"`;
         const fullNotes = itemInfo.calc_factor_instruction + (itemInfo.notes ? " | Note: " + itemInfo.notes : "");
         
         const row = [
@@ -2536,12 +2534,7 @@ function EstimatorAppContent() {
     const reader = new FileReader();
     reader.onload = function(e) {
       try {
-        const resultText = e.target?.result as string;
-        if (!resultText || resultText.trim() === "") {
-          alert("JSON file is empty.");
-          return;
-        }
-        const importedData = JSON.parse(resultText);
+        const importedData = JSON.parse(e.target?.result as string);
         if (importedData.takeoffData) {
           setCurrentJobId(importedData.jobId || "JOB-" + Date.now());
           setTakeoffData(importedData.takeoffData);
@@ -2600,12 +2593,7 @@ function EstimatorAppContent() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const resultText = e.target?.result as string;
-        if (!resultText || resultText.trim() === "") {
-          alert("JSON file is empty.");
-          return;
-        }
-        const importedData = JSON.parse(resultText);
+        const importedData = JSON.parse(e.target?.result as string);
         if (importedData.type === 'customVariables' && Array.isArray(importedData.customVariables)) {
           const newVars = importedData.customVariables;
           
@@ -2674,12 +2662,7 @@ function EstimatorAppContent() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const resultText = e.target?.result as string;
-        if (!resultText || resultText.trim() === "") {
-          alert("JSON file is empty.");
-          return;
-        }
-        const importedData = JSON.parse(resultText);
+        const importedData = JSON.parse(e.target?.result as string);
         if (importedData.type === 'dataTables' && Array.isArray(importedData.dataTables)) {
           const newTables = importedData.dataTables;
           
@@ -2746,170 +2729,110 @@ function EstimatorAppContent() {
     URL.revokeObjectURL(url);
   };
 
-  const parseCSVNumber = (val: string) => {
-    if (!val) return 0;
-    // Remove thousands separators (commas) and handle different decimal separators if needed
-    // For now, assume standard US formatting but handle commas
-    const cleaned = val.replace(/,/g, '');
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? 0 : num;
-  };
-
   const importDataTableCSV = (event: React.ChangeEvent<HTMLInputElement>, tableId: string) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    Papa.parse(file, {
-      header: false,
-      skipEmptyLines: true,
-      complete: (results) => {
-        try {
-          const data = results.data as string[][];
-          if (data.length < 1) {
-            alert("CSV file is empty.");
-            return;
-          }
-
-          const headers = data[0];
-          const replaceColumns = window.confirm("Do you want to replace existing columns with the CSV headers? (Cancel will only import rows matching existing columns)");
-
-          let newColumns = [...(dataTables.find(t => t.id === tableId)?.columns || [])];
-          
-          if (replaceColumns) {
-            newColumns = headers.map((h, idx) => {
-              const name = h.trim() || `Column ${idx + 1}`;
-              const key = name.replace(/\s+/g, '_').toLowerCase();
-              let type: 'string' | 'number' = 'string';
-              if (data.length > 1) {
-                const firstRowVals = data[1];
-                if (idx < firstRowVals.length && firstRowVals[idx]) {
-                  const num = Number(firstRowVals[idx]);
-                  if (!isNaN(num)) type = 'number';
-                }
-              }
-              return { name, key, type };
-            });
-          }
-
-          const newRows = data.slice(1).map(vals => {
-            const rowObj: Record<string, any> = {};
-            
-            if (replaceColumns) {
-              newColumns.forEach((col, idx) => {
-                if (idx < vals.length) {
-                  rowObj[col.key] = col.type === 'number' ? parseCSVNumber(vals[idx]) : vals[idx];
-                } else {
-                  rowObj[col.key] = col.type === 'number' ? 0 : '';
-                }
-              });
-            } else {
-              newColumns.forEach(col => {
-                const headerIdx = headers.findIndex(h => h.trim().toLowerCase() === col.name.toLowerCase() || h.trim().toLowerCase() === col.key.toLowerCase());
-                if (headerIdx !== -1 && headerIdx < vals.length) {
-                  rowObj[col.key] = col.type === 'number' ? parseCSVNumber(vals[headerIdx]) : vals[headerIdx];
-                } else {
-                  rowObj[col.key] = col.type === 'number' ? 0 : '';
-                }
-              });
-            }
-            return rowObj;
-          });
-
-          const nextTables = dataTables.map(t => {
-            if (t.id === tableId) {
-              return { ...t, columns: newColumns, rows: replaceColumns ? newRows : [...t.rows, ...newRows] };
-            }
-            return t;
-          });
-
-          setDataTables(nextTables);
-          setEditingDataTable(nextTables.find(t => t.id === tableId)!);
-          localStorage.setItem('userDataTables', JSON.stringify(nextTables));
-          recordHistory(`Imported CSV into table ${nextTables.find(t => t.id === tableId)?.name}`, takeoffData, catalog, projectName, clientName, customVariables, jobNotes, dynamicColumns, entityData, formulaTemplates, nextTables);
-          alert("CSV imported successfully!");
-
-        } catch (err) {
-          console.error("CSV Import Error:", err);
-          alert("Error parsing CSV file.");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length < 1) {
+          alert("CSV file is empty.");
+          return;
         }
-      },
-      error: (error) => {
-        console.error("PapaParse Error:", error);
-        alert("Error reading CSV file.");
-      }
-    });
 
-    event.target.value = "";
-  };
-
-  const importNewTableFromCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    Papa.parse(file, {
-      header: false,
-      skipEmptyLines: true,
-      complete: (results) => {
-        try {
-          const data = results.data as string[][];
-          if (data.length < 1) {
-            alert("CSV file is empty.");
-            return;
+        const parseCSVLine = (line: string) => {
+          const result = [];
+          let current = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              if (inQuotes && line[i+1] === '"') {
+                current += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === ',' && !inQuotes) {
+              result.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
           }
+          result.push(current);
+          return result;
+        };
 
-          const headers = data[0];
-          const tableName = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-          
-          const newColumns = headers.map((h, idx) => {
-            const name = h.trim() || `Column ${idx + 1}`;
-            const key = name.replace(/\s+/g, '_').toLowerCase();
+        const headers = parseCSVLine(lines[0]);
+        const replaceColumns = window.confirm("Do you want to replace existing columns with the CSV headers? (Cancel will only import rows matching existing columns)");
+
+        let newColumns = [...(dataTables.find(t => t.id === tableId)?.columns || [])];
+        
+        if (replaceColumns) {
+          newColumns = headers.map(h => {
+            const name = h.trim();
+            const key = name.replace(/\s+/g, '_');
             let type: 'string' | 'number' = 'string';
-            if (data.length > 1) {
-              const firstRowVals = data[1];
-              if (idx < firstRowVals.length && firstRowVals[idx]) {
-                const num = Number(firstRowVals[idx]);
+            if (lines.length > 1) {
+              const firstRowVals = parseCSVLine(lines[1]);
+              const valIndex = headers.indexOf(h);
+              if (valIndex !== -1 && firstRowVals[valIndex]) {
+                const num = Number(firstRowVals[valIndex]);
                 if (!isNaN(num)) type = 'number';
               }
             }
             return { name, key, type };
           });
+        }
 
-          const newRows = data.slice(1).map(vals => {
-            const rowObj: Record<string, any> = {};
+        const newRows = lines.slice(1).map(line => {
+          const vals = parseCSVLine(line);
+          const rowObj: Record<string, any> = {};
+          
+          if (replaceColumns) {
             newColumns.forEach((col, idx) => {
               if (idx < vals.length) {
-                rowObj[col.key] = col.type === 'number' ? parseCSVNumber(vals[idx]) : vals[idx];
+                rowObj[col.key] = col.type === 'number' ? (parseFloat(vals[idx]) || 0) : vals[idx];
               } else {
                 rowObj[col.key] = col.type === 'number' ? 0 : '';
               }
             });
-            return rowObj;
-          });
+          } else {
+            newColumns.forEach(col => {
+              const headerIdx = headers.findIndex(h => h.trim().toLowerCase() === col.name.toLowerCase() || h.trim().toLowerCase() === col.key.toLowerCase());
+              if (headerIdx !== -1 && headerIdx < vals.length) {
+                rowObj[col.key] = col.type === 'number' ? (parseFloat(vals[headerIdx]) || 0) : vals[headerIdx];
+              } else {
+                rowObj[col.key] = col.type === 'number' ? 0 : '';
+              }
+            });
+          }
+          return rowObj;
+        });
 
-          const newTable: DataTable = {
-            id: 'dt_' + Date.now(),
-            name: tableName,
-            columns: newColumns,
-            rows: newRows
-          };
+        const nextTables = dataTables.map(t => {
+          if (t.id === tableId) {
+            return { ...t, columns: newColumns, rows: replaceColumns ? newRows : [...t.rows, ...newRows] };
+          }
+          return t;
+        });
 
-          const nextTables = [...dataTables, newTable];
-          setDataTables(nextTables);
-          setEditingDataTable(newTable);
-          localStorage.setItem('userDataTables', JSON.stringify(nextTables));
-          recordHistory(`Imported new table ${tableName} from CSV`, takeoffData, catalog, projectName, clientName, customVariables, jobNotes, dynamicColumns, entityData, formulaTemplates, nextTables);
-          alert(`New table "${tableName}" imported successfully!`);
-        } catch (err) {
-          console.error("New Table CSV Import Error:", err);
-          alert("Error parsing CSV file.");
-        }
-      },
-      error: (error) => {
-        console.error("PapaParse Error:", error);
-        alert("Error reading CSV file.");
+        setDataTables(nextTables);
+        setEditingDataTable(nextTables.find(t => t.id === tableId)!);
+        localStorage.setItem('userDataTables', JSON.stringify(nextTables));
+        const updatedTable = nextTables.find(t => t.id === tableId);
+        recordHistory(`Imported CSV into table ${nextTables.find(t => t.id === tableId)?.name}`, takeoffData, catalog, projectName, clientName, customVariables, jobNotes, dynamicColumns, entityData, formulaTemplates, nextTables);
+        alert("CSV imported successfully!");
+
+      } catch (err) {
+        alert("Error parsing CSV file.");
       }
-    });
-
+    };
+    reader.readAsText(file);
     event.target.value = "";
   };
 
@@ -4199,12 +4122,7 @@ function EstimatorAppContent() {
                         const reader = new FileReader();
                         reader.onload = (event) => {
                           try {
-                            const resultText = event.target?.result as string;
-                            if (!resultText || resultText.trim() === "") {
-                              alert("JSON file is empty.");
-                              return;
-                            }
-                            const importedClients = JSON.parse(resultText);
+                            const importedClients = JSON.parse(event.target?.result as string);
                             if (Array.isArray(importedClients)) {
                               const isValid = importedClients.every(c => c.id && c.name);
                               if (isValid) {
@@ -6792,7 +6710,81 @@ function EstimatorAppContent() {
                   <div className="flex items-center gap-1">
                     <label className="text-emerald-600 hover:text-emerald-700 cursor-pointer" title="Import New Table from CSV">
                       <FileUp size={20} />
-                      <input type="file" className="hidden" accept=".csv" onChange={importNewTableFromCSV} />
+                      <input type="file" className="hidden" accept=".csv" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const text = event.target?.result as string;
+                          const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+                          if (lines.length < 1) return;
+                          
+                          const parseCSVLine = (line: string) => {
+                            const result = [];
+                            let current = '';
+                            let inQuotes = false;
+                            for (let i = 0; i < line.length; i++) {
+                              const char = line[i];
+                              if (char === '"') {
+                                if (inQuotes && line[i+1] === '"') { current += '"'; i++; } else { inQuotes = !inQuotes; }
+                              } else if (char === ',' && !inQuotes) {
+                                result.push(current);
+                                current = '';
+                              } else {
+                                current += char;
+                              }
+                            }
+                            result.push(current);
+                            return result;
+                          };
+
+                          const headers = parseCSVLine(lines[0]);
+                          const tableName = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+                          
+                          const newColumns = headers.map(h => {
+                            const name = h.trim() || "Column";
+                            const key = name.replace(/\s+/g, '_').toLowerCase();
+                            let type: 'string' | 'number' = 'string';
+                            if (lines.length > 1) {
+                              const firstRowVals = parseCSVLine(lines[1]);
+                              const valIndex = headers.indexOf(h);
+                              if (valIndex !== -1 && firstRowVals[valIndex]) {
+                                const num = Number(firstRowVals[valIndex]);
+                                if (!isNaN(num)) type = 'number';
+                              }
+                            }
+                            return { name, key, type };
+                          });
+
+                          const newRows = lines.slice(1).map(line => {
+                            const vals = parseCSVLine(line);
+                            const rowObj: Record<string, any> = {};
+                            newColumns.forEach((col, idx) => {
+                              if (idx < vals.length) {
+                                rowObj[col.key] = col.type === 'number' ? (parseFloat(vals[idx]) || 0) : vals[idx];
+                              } else {
+                                rowObj[col.key] = col.type === 'number' ? 0 : '';
+                              }
+                            });
+                            return rowObj;
+                          });
+
+                          const newTable: DataTable = {
+                            id: "DT-" + Date.now(),
+                            name: tableName,
+                            columns: newColumns,
+                            rows: newRows
+                          };
+
+                          const nextTables = [...dataTables, newTable];
+                          setDataTables(nextTables);
+                          setEditingDataTable(newTable);
+                          localStorage.setItem('userDataTables', JSON.stringify(nextTables));
+                          recordHistory(`Imported new table ${tableName} from CSV`, takeoffData, catalog, projectName, clientName, customVariables, jobNotes, dynamicColumns, entityData, formulaTemplates, nextTables);
+                        };
+                        reader.readAsText(file);
+                        e.target.value = '';
+                      }} />
                     </label>
                     <button 
                       onClick={() => {
