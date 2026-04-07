@@ -1930,6 +1930,42 @@ function EstimatorAppContent() {
     });
   };
 
+  const saveToLibrary = (item: Partial<Item>) => {
+    const exists = catalog.some(i => i.item_name.toLowerCase() === item.item_name?.toLowerCase() && i.category === item.category && i.sub_category === item.sub_category);
+    if (exists) {
+      alert("Material already exists in the library for this category.");
+      return;
+    }
+    const newCatalog = [...catalog, { 
+      ...item, 
+      item_id: Date.now().toString(),
+      building_type: item.building_type || "Residential",
+      category: item.category || "General",
+      sub_category: item.sub_category || "General",
+      sub_item_1: item.sub_item_1 || "General",
+      item_name: item.item_name || "New Material",
+      uom: item.uom || "pcs",
+      calc_factor_instruction: item.calc_factor_instruction || "",
+      notes: item.notes || "",
+      material_order: item.material_order || 0
+    } as Item];
+    setCatalog(newCatalog);
+    recordHistory('Saved new material to library');
+  };
+
+  const deleteFromLibrary = (itemId: string) => {
+    if (!confirm("Are you sure you want to delete this material from the library?")) return;
+    const newCatalog = catalog.filter(i => i.item_id !== itemId);
+    setCatalog(newCatalog);
+    recordHistory('Deleted material from library');
+  };
+
+  const updateLibraryItem = (updatedItem: Item) => {
+    const newCatalog = catalog.map(i => i.item_id === updatedItem.item_id ? updatedItem : i);
+    setCatalog(newCatalog);
+    recordHistory('Updated material in library');
+  };
+
   const renameCategory = (oldCat: string) => {
     const newCat = window.prompt(`Rename Category (L1):`, oldCat);
     if (newCat && newCat.trim() !== "" && newCat !== oldCat) {
@@ -2997,12 +3033,12 @@ function EstimatorAppContent() {
       const itemIndex = newCatalog.findIndex(i => i.item_id === editingItemId);
       if (itemIndex > -1) {
         const oldName = newCatalog[itemIndex].item_name;
-        newCatalog[itemIndex] = { item_id: editingItemId, category: cat, sub_category: subCat, sub_item_1: subItem1, item_name: name, uom: uom, calc_factor_instruction: rule, notes: notes };
+        newCatalog[itemIndex] = { item_id: editingItemId, building_type: newCatalog[itemIndex].building_type || "Residential", category: cat, sub_category: subCat, sub_item_1: subItem1, item_name: name, uom: uom, calc_factor_instruction: rule, notes: notes };
         setTimeout(() => recordHistory(`Advanced Edit: ${oldName} -> ${name}`, takeoffData, newCatalog, projectName, clientName), 0);
       }
     } else {
       finalItemId = "ITM-" + Date.now();
-      const newItem: Item = { item_id: finalItemId, category: cat, sub_category: subCat, sub_item_1: subItem1, item_name: name, uom: uom, calc_factor_instruction: rule, notes: notes };
+      const newItem: Item = { item_id: finalItemId, building_type: "Residential", category: cat, sub_category: subCat, sub_item_1: subItem1, item_name: name, uom: uom, calc_factor_instruction: rule, notes: notes };
       newCatalog.push(newItem);
       setTimeout(() => recordHistory(`Added New Item: ${name}`, takeoffData, newCatalog, projectName, clientName), 0);
     }
@@ -3051,30 +3087,54 @@ function EstimatorAppContent() {
     }
   };
 
+  const [buildingTypeFilter, setBuildingTypeFilter] = useState<string>("All");
+  const [materialLibraryModalOpen, setMaterialLibraryModalOpen] = useState(false);
+  const [libSearchQuery, setLibSearchQuery] = useState("");
+  const [editingLibItem, setEditingLibItem] = useState<Item | null>(null);
+  const [isAddingLibItem, setIsAddingLibItem] = useState(false);
+
   const treeData = useMemo(() => {
-    const tree: Record<string, Record<string, Record<string, Item[]>>> = {};
+    const tree: Record<string, Record<string, Record<string, Record<string, Item[]>>>> = {};
     const filtered = catalog.filter(item => {
+      // Building Type Filter
+      if (buildingTypeFilter !== "All" && item.building_type !== buildingTypeFilter) return false;
+
       if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
       return item.item_name.toLowerCase().includes(q) ||
              item.category.toLowerCase().includes(q) ||
              item.sub_category.toLowerCase().includes(q) ||
-             (item.sub_item_1 || "general").toLowerCase().includes(q);
+             (item.sub_item_1 || "general").toLowerCase().includes(q) ||
+             (item.building_type || "").toLowerCase().includes(q);
     });
 
     filtered.forEach(item => {
+      const bType = item.building_type || "Residential";
       const cat = item.category || "UNASSIGNED";
       const subCat = item.sub_category || "General";
       const subItem1 = item.sub_item_1 || "General";
 
-      if (!tree[cat]) tree[cat] = {};
-      if (!tree[cat][subCat]) tree[cat][subCat] = {};
-      if (!tree[cat][subCat][subItem1]) tree[cat][subCat][subItem1] = [];
+      if (!tree[bType]) tree[bType] = {};
+      if (!tree[bType][cat]) tree[bType][cat] = {};
+      if (!tree[bType][cat][subCat]) tree[bType][cat][subCat] = {};
+      if (!tree[bType][cat][subCat][subItem1]) tree[bType][cat][subCat][subItem1] = [];
 
-      tree[cat][subCat][subItem1].push(item);
+      tree[bType][cat][subCat][subItem1].push(item);
     });
+
+    // Sort items within groups by material_order
+    Object.values(tree).forEach(cats => {
+      Object.values(cats).forEach(subCats => {
+        Object.values(subCats).forEach(subItems => {
+          Object.values(subItems).forEach(items => {
+            items.sort((a, b) => (a.material_order || 0) - (b.material_order || 0));
+          });
+        });
+      });
+    });
+
     return tree;
-  }, [catalog, searchQuery]);
+  }, [catalog, searchQuery, buildingTypeFilter]);
 
   const allUOMs = useMemo(() => getUniqueVals(catalog, 'uom'), [catalog]);
 
@@ -3126,11 +3186,11 @@ function EstimatorAppContent() {
               <button onClick={saveCurrentJob} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-1">
                 <Save size={16} /> Save
               </button>
+              <button onClick={() => setMaterialLibraryModalOpen(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-1 whitespace-nowrap">
+                <BookOpen size={16} /> Library
+              </button>
               <button onClick={() => { setTemplateModalOpen(true); setShowSaveTemplateForm(true); }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-1 whitespace-nowrap">
                 <Save size={16} /> Save Template
-              </button>
-              <button onClick={() => setTemplateModalOpen(true)} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-2 rounded text-sm font-bold flex items-center gap-1 whitespace-nowrap">
-                <Copy size={16} /> Templates
               </button>
             </div>
           </div>
@@ -3344,6 +3404,22 @@ function EstimatorAppContent() {
         </div>
       </div>
 
+      {/* Building Type Filter Bar */}
+      <div className="max-w-[98%] mx-auto px-4 mb-4">
+        <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg shadow-sm border border-slate-200">
+          <span className="text-xs font-bold text-slate-500 uppercase px-2">Filter by Building Type:</span>
+          {["All", ...Array.from(new Set(catalog.map(i => i.building_type || "Residential")))].map(type => (
+            <button
+              key={type}
+              onClick={() => setBuildingTypeFilter(type)}
+              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all ${buildingTypeFilter === type ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Main Table */}
       <div className="max-w-[98%] mx-auto px-4 mt-6 overflow-x-auto">
         {Object.keys(treeData).length === 0 ? (
@@ -3351,229 +3427,236 @@ function EstimatorAppContent() {
             No items match your search.
           </div>
         ) : (
-          Object.entries(treeData).map(([category, subCategories]) => {
-            const isCatCollapsed = searchQuery ? false : (collapsedState[category] || false);
-            
-            return (
-              <div key={category} className="bg-white rounded-lg shadow-sm border border-slate-300 mb-8 overflow-hidden">
-                <div 
-                  className="bg-slate-800 px-4 py-3 flex justify-between items-center group cursor-pointer hover:bg-slate-700 transition" 
-                  onClick={() => toggleCollapse(category)}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-400 text-xs font-bold w-4">
-                      {isCatCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                    </span>
-                    <h2 className="font-bold text-white text-lg tracking-wide uppercase">{category}</h2>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); openItemModal('add', null, category); }} 
-                      className="text-slate-400 hover:text-white font-bold text-sm transition flex items-center gap-1"
-                    >
-                      <Plus size={14} /> Add new Sub-Category
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); duplicateCategory(category); }} 
-                      className="text-slate-400 hover:text-white font-bold text-sm transition flex items-center gap-1"
-                    >
-                      <Copy size={14} /> Duplicate
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); renameCategory(category); }} 
-                      className="text-slate-400 hover:text-white font-bold text-sm transition flex items-center gap-1"
-                    >
-                      <Edit2 size={14} /> Edit
-                    </button>
-                  </div>
-                </div>
+          Object.entries(treeData).map(([buildingType, categories]) => (
+            <div key={buildingType} className="mb-12">
+              <div className="flex items-center gap-3 mb-4 border-b-2 border-slate-300 pb-2">
+                <div className="bg-slate-800 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-widest">Building Type</div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">{buildingType}</h2>
+              </div>
+              
+              {Object.entries(categories).map(([category, subCategories]) => {
+                const isCatCollapsed = searchQuery ? false : (collapsedState[category] || false);
                 
-                {!isCatCollapsed && (
-                  <div className="overflow-x-auto pb-4 bg-white">
-                    {/* Category Dynamic Fields */}
-                    {dynamicColumns.filter(c => c.scope === 'category' && (!c.category || c.category === category)).length > 0 && (
-                      <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-4">
-                        {dynamicColumns.filter(c => c.scope === 'category' && (!c.category || c.category === category)).map(col => {
-                          const catKey = `CAT:${category}`;
-                          const val = entityData[catKey]?.[col.key] ?? col.defaultValue ?? '';
-                          return (
-                            <div key={col.id} className="flex flex-col">
-                              <label className="text-xs font-bold text-slate-500 uppercase mb-1">{col.name}</label>
-                              <DebouncedInput 
-                                type={col.dataType === 'number' ? 'number' : 'text'}
-                                value={val}
-                                onChange={(val) => {
-                                  const newVal = col.dataType === 'number' ? parseFloat(String(val)) : String(val);
-                                  setEntityData(prev => ({
-                                    ...prev,
-                                    [catKey]: { ...(prev[catKey] || {}), [col.key]: newVal }
-                                  }));
-                                }}
-                              onBlur={() => handleEntityDataBlur(`Updated ${col.name} for ${category}`, [col.key])}
-                              className="border border-slate-300 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {Object.entries(subCategories).map(([subCategory, subItemsGroup]) => {
-                    const subKey = category + '||' + subCategory;
-                    const isSubCollapsed = searchQuery ? false : (collapsedState[subKey] || false);
-
-                    return (
-                      <div key={subKey}>
-                        <div 
-                          className="bg-blue-100 px-4 py-2 border-y border-blue-200 mt-4 mb-1 flex justify-between items-center group cursor-pointer hover:bg-blue-200 transition" 
-                          onClick={() => toggleCollapse(subKey)}
+                return (
+                  <div key={category} className="bg-white rounded-lg shadow-sm border border-slate-300 mb-8 overflow-hidden">
+                    <div 
+                      className="bg-slate-800 px-4 py-3 flex justify-between items-center group cursor-pointer hover:bg-slate-700 transition" 
+                      onClick={() => toggleCollapse(category)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-400 text-xs font-bold w-4">
+                          {isCatCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                        </span>
+                        <h2 className="font-bold text-white text-lg tracking-wide uppercase">{category}</h2>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); openItemModal('add', null, category); }} 
+                          className="text-slate-400 hover:text-white font-bold text-sm transition flex items-center gap-1"
                         >
-                          <div className="flex items-center gap-3">
-                            <span className="text-blue-600 text-xs font-bold w-4">
-                              {isSubCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                            </span>
-                            <h3 className="font-bold text-blue-900 text-base uppercase">{subCategory}</h3>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); openItemModal('add', null, category, subCategory); }} 
-                              className="text-blue-500 hover:text-blue-800 font-bold text-sm transition flex items-center gap-1"
-                            >
-                              <Plus size={14} /> Add new Sub-Item Group (L3)
-                            </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); duplicateSubCategory(category, subCategory); }} 
-                              className="text-blue-500 hover:text-blue-800 font-bold text-sm transition flex items-center gap-1"
-                            >
-                              <Copy size={14} /> Duplicate
-                            </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); renameSubCategory(category, subCategory); }} 
-                              className="text-blue-500 hover:text-blue-800 font-bold text-sm transition flex items-center gap-1"
-                            >
-                              <Edit2 size={14} /> Edit
-                            </button>
-                          </div>
+                          <Plus size={14} /> Add new Sub-Category
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); duplicateCategory(category); }} 
+                          className="text-slate-400 hover:text-white font-bold text-sm transition flex items-center gap-1"
+                        >
+                          <Copy size={14} /> Duplicate
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); renameCategory(category); }} 
+                          className="text-slate-400 hover:text-white font-bold text-sm transition flex items-center gap-1"
+                        >
+                          <Edit2 size={14} /> Edit
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {!isCatCollapsed && (
+                      <div className="overflow-x-auto pb-4 bg-white">
+                        {/* Category Dynamic Fields */}
+                        {dynamicColumns.filter(c => c.scope === 'category' && (!c.category || c.category === category)).length > 0 && (
+                          <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-4">
+                            {dynamicColumns.filter(c => c.scope === 'category' && (!c.category || c.category === category)).map(col => {
+                              const catKey = `CAT:${category}`;
+                              const val = entityData[catKey]?.[col.key] ?? col.defaultValue ?? '';
+                              return (
+                                <div key={col.id} className="flex flex-col">
+                                  <label className="text-xs font-bold text-slate-500 uppercase mb-1">{col.name}</label>
+                                  <DebouncedInput 
+                                    type={col.dataType === 'number' ? 'number' : 'text'}
+                                    value={val}
+                                    onChange={(val) => {
+                                      const newVal = col.dataType === 'number' ? parseFloat(String(val)) : String(val);
+                                      setEntityData(prev => ({
+                                        ...prev,
+                                        [catKey]: { ...(prev[catKey] || {}), [col.key]: newVal }
+                                      }));
+                                    }}
+                                  onBlur={() => handleEntityDataBlur(`Updated ${col.name} for ${category}`, [col.key])}
+                                  className="border border-slate-300 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
-                        
-                        {!isSubCollapsed && (
-                          <div>
-                            {/* SubCategory Dynamic Fields */}
-                            {dynamicColumns.filter(c => {
-                              if (c.scope !== 'subcategory') return false;
-                              if (c.category && c.category !== category) return false;
-                              if (c.subCategory && (c.category !== category || c.subCategory !== subCategory)) return false;
-                              return true;
-                            }).length > 0 && (
-                              <div className="px-4 py-2 bg-blue-50/30 border-b border-blue-100 flex flex-wrap gap-4">
+                      )}
+                      {Object.entries(subCategories).map(([subCategory, subItemsGroup]) => {
+                        const subKey = category + '||' + subCategory;
+                        const isSubCollapsed = searchQuery ? false : (collapsedState[subKey] || false);
+    
+                        return (
+                          <div key={subKey}>
+                            <div 
+                              className="bg-blue-100 px-4 py-2 border-y border-blue-200 mt-4 mb-1 flex justify-between items-center group cursor-pointer hover:bg-blue-200 transition" 
+                              onClick={() => toggleCollapse(subKey)}
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-blue-600 text-xs font-bold w-4">
+                                  {isSubCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                                </span>
+                                <h3 className="font-bold text-blue-900 text-base uppercase">{subCategory}</h3>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); openItemModal('add', null, category, subCategory); }} 
+                                  className="text-blue-500 hover:text-blue-800 font-bold text-sm transition flex items-center gap-1"
+                                >
+                                  <Plus size={14} /> Add new Sub-Item Group (L3)
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); duplicateSubCategory(category, subCategory); }} 
+                                  className="text-blue-500 hover:text-blue-800 font-bold text-sm transition flex items-center gap-1"
+                                >
+                                  <Copy size={14} /> Duplicate
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); renameSubCategory(category, subCategory); }} 
+                                  className="text-blue-500 hover:text-blue-800 font-bold text-sm transition flex items-center gap-1"
+                                >
+                                  <Edit2 size={14} /> Edit
+                                </button>
+                              </div>
+                            </div>
+                            
+                            {!isSubCollapsed && (
+                              <div>
+                                {/* SubCategory Dynamic Fields */}
                                 {dynamicColumns.filter(c => {
                                   if (c.scope !== 'subcategory') return false;
                                   if (c.category && c.category !== category) return false;
                                   if (c.subCategory && (c.category !== category || c.subCategory !== subCategory)) return false;
                                   return true;
-                                }).map(col => {
-                                  const subCatKey = `SUBCAT:${category}|${subCategory}`;
-                                  const val = entityData[subCatKey]?.[col.key] ?? col.defaultValue ?? '';
-                                  return (
-                                    <div key={col.id} className="flex flex-col">
-                                      <label className="text-xs font-bold text-blue-600 uppercase mb-1">{col.name}</label>
-                                      <DebouncedInput 
-                                        type={col.dataType === 'number' ? 'number' : 'text'}
-                                        value={val}
-                                      onChange={(val) => {
-                                        const newVal = col.dataType === 'number' ? parseFloat(String(val)) : String(val);
-                                        setEntityData(prev => ({
-                                          ...prev,
-                                          [subCatKey]: { ...(prev[subCatKey] || {}), [col.key]: newVal }
-                                        }));
-                                      }}
-                                      onBlur={() => handleEntityDataBlur(`Updated ${col.name} for ${subCategory}`, [col.key])}
-                                      className="border border-blue-200 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
-                                    />
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {Object.entries(subItemsGroup).map(([subItem1, items]) => {
-                            const sub1Key = subKey + '||' + subItem1;
-                            const isSub1Collapsed = searchQuery ? false : (collapsedState[sub1Key] || false);
-
-                            return (
-                              <div key={sub1Key}>
-                                <div 
-                                  className="bg-emerald-50 px-6 py-1.5 border-b border-emerald-100 flex justify-between items-center group cursor-pointer hover:bg-emerald-100 transition" 
-                                  onClick={() => toggleCollapse(sub1Key)}
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-emerald-500 text-xs font-bold w-4">
-                                      {isSub1Collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                                    </span>
-                                    <h4 className="font-bold text-emerald-800 text-sm">Group: {subItem1}</h4>
-                                  </div>
-                                  <div className="flex items-center gap-4">
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); openItemModal('add', null, category, subCategory, subItem1); }} 
-                                      className="text-emerald-500 hover:text-emerald-700 font-bold text-xs transition flex items-center gap-1"
-                                    >
-                                      <Plus size={12} /> Add new Material
-                                    </button>
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); duplicateSubItem1(category, subCategory, subItem1); }} 
-                                      className="text-emerald-400 hover:text-emerald-700 font-bold text-xs transition flex items-center gap-1"
-                                    >
-                                      <Copy size={12} /> Duplicate
-                                    </button>
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); renameSubItem1(category, subCategory, subItem1); }} 
-                                      className="text-emerald-400 hover:text-emerald-700 font-bold text-xs transition flex items-center gap-1"
-                                    >
-                                      <Edit2 size={12} /> Edit
-                                    </button>
-                                  </div>
-                                </div>
-                                
-                                {!isSub1Collapsed && (
-                                  <div>
-                                    {/* ItemGroup Dynamic Fields */}
+                                }).length > 0 && (
+                                  <div className="px-4 py-2 bg-blue-50/30 border-b border-blue-100 flex flex-wrap gap-4">
                                     {dynamicColumns.filter(c => {
-                                      if (c.scope !== 'itemgroup') return false;
+                                      if (c.scope !== 'subcategory') return false;
                                       if (c.category && c.category !== category) return false;
                                       if (c.subCategory && (c.category !== category || c.subCategory !== subCategory)) return false;
-                                      if (c.itemGroup && (c.category !== category || c.subCategory !== subCategory || c.itemGroup !== subItem1)) return false;
                                       return true;
-                                    }).length > 0 && (
-                                      <div className="px-4 py-2 bg-emerald-50/30 border-b border-emerald-100 flex flex-wrap gap-4">
+                                    }).map(col => {
+                                      const subCatKey = `SUBCAT:${category}|${subCategory}`;
+                                      const val = entityData[subCatKey]?.[col.key] ?? col.defaultValue ?? '';
+                                      return (
+                                        <div key={col.id} className="flex flex-col">
+                                          <label className="text-xs font-bold text-blue-600 uppercase mb-1">{col.name}</label>
+                                          <DebouncedInput 
+                                            type={col.dataType === 'number' ? 'number' : 'text'}
+                                            value={val}
+                                          onChange={(val) => {
+                                            const newVal = col.dataType === 'number' ? parseFloat(String(val)) : String(val);
+                                            setEntityData(prev => ({
+                                              ...prev,
+                                              [subCatKey]: { ...(prev[subCatKey] || {}), [col.key]: newVal }
+                                            }));
+                                          }}
+                                          onBlur={() => handleEntityDataBlur(`Updated ${col.name} for ${subCategory}`, [col.key])}
+                                          className="border border-blue-200 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {Object.entries(subItemsGroup).map(([subItem1, items]) => {
+                                const sub1Key = subKey + '||' + subItem1;
+                                const isSub1Collapsed = searchQuery ? false : (collapsedState[sub1Key] || false);
+        
+                                return (
+                                  <div key={sub1Key}>
+                                    <div 
+                                      className="bg-emerald-50 px-6 py-1.5 border-b border-emerald-100 flex justify-between items-center group cursor-pointer hover:bg-emerald-100 transition" 
+                                      onClick={() => toggleCollapse(sub1Key)}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-emerald-500 text-xs font-bold w-4">
+                                          {isSub1Collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                                        </span>
+                                        <h4 className="font-bold text-emerald-800 text-sm">Group: {subItem1}</h4>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); openItemModal('add', null, category, subCategory, subItem1); }} 
+                                          className="text-emerald-500 hover:text-emerald-700 font-bold text-xs transition flex items-center gap-1"
+                                        >
+                                          <Plus size={12} /> Add new Material
+                                        </button>
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); duplicateSubItem1(category, subCategory, subItem1); }} 
+                                          className="text-emerald-400 hover:text-emerald-700 font-bold text-xs transition flex items-center gap-1"
+                                        >
+                                          <Copy size={12} /> Duplicate
+                                        </button>
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); renameSubItem1(category, subCategory, subItem1); }} 
+                                          className="text-emerald-400 hover:text-emerald-700 font-bold text-xs transition flex items-center gap-1"
+                                        >
+                                          <Edit2 size={12} /> Edit
+                                        </button>
+                                      </div>
+                                    </div>
+                                    
+                                    {!isSub1Collapsed && (
+                                      <div>
+                                        {/* ItemGroup Dynamic Fields */}
                                         {dynamicColumns.filter(c => {
                                           if (c.scope !== 'itemgroup') return false;
                                           if (c.category && c.category !== category) return false;
                                           if (c.subCategory && (c.category !== category || c.subCategory !== subCategory)) return false;
                                           if (c.itemGroup && (c.category !== category || c.subCategory !== subCategory || c.itemGroup !== subItem1)) return false;
                                           return true;
-                                        }).map(col => {
-                                          const itemGroupKey = `ITEMGROUP:${category}|${subCategory}|${subItem1}`;
-                                          const val = entityData[itemGroupKey]?.[col.key] ?? col.defaultValue ?? '';
-                                          return (
-                                            <div key={col.id} className="flex flex-col">
-                                              <label className="text-xs font-bold text-emerald-600 uppercase mb-1">{col.name}</label>
-                                              <DebouncedInput 
-                                                type={col.dataType === 'number' ? 'number' : 'text'}
-                                                value={val}
-                                                onChange={(val) => {
-                                                  const newVal = col.dataType === 'number' ? parseFloat(String(val)) : String(val);
-                                                  setEntityData(prev => ({
-                                                    ...prev,
-                                                    [itemGroupKey]: { ...(prev[itemGroupKey] || {}), [col.key]: newVal }
-                                                  }));
-                                                }}
-                                                onBlur={() => handleEntityDataBlur(`Updated ${col.name} for ${subItem1}`, [col.key])}
-                                                className="border border-emerald-200 rounded px-2 py-1 text-sm focus:border-emerald-500 outline-none"
-                                              />
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  <table className="w-full text-left mb-4 max-w-full block md:table">
+                                        }).length > 0 && (
+                                          <div className="px-4 py-2 bg-emerald-50/30 border-b border-emerald-100 flex flex-wrap gap-4">
+                                            {dynamicColumns.filter(c => {
+                                              if (c.scope !== 'itemgroup') return false;
+                                              if (c.category && c.category !== category) return false;
+                                              if (c.subCategory && (c.category !== category || c.subCategory !== subCategory)) return false;
+                                              if (c.itemGroup && (c.category !== category || c.subCategory !== subCategory || c.itemGroup !== subItem1)) return false;
+                                              return true;
+                                            }).map(col => {
+                                              const itemGroupKey = `ITEMGROUP:${category}|${subCategory}|${subItem1}`;
+                                              const val = entityData[itemGroupKey]?.[col.key] ?? col.defaultValue ?? '';
+                                              return (
+                                                <div key={col.id} className="flex flex-col">
+                                                  <label className="text-xs font-bold text-emerald-600 uppercase mb-1">{col.name}</label>
+                                                  <DebouncedInput 
+                                                    type={col.dataType === 'number' ? 'number' : 'text'}
+                                                    value={val}
+                                                    onChange={(val) => {
+                                                      const newVal = col.dataType === 'number' ? parseFloat(String(val)) : String(val);
+                                                      setEntityData(prev => ({
+                                                        ...prev,
+                                                        [itemGroupKey]: { ...(prev[itemGroupKey] || {}), [col.key]: newVal }
+                                                      }));
+                                                    }}
+                                                    onBlur={() => handleEntityDataBlur(`Updated ${col.name} for ${subItem1}`, [col.key])}
+                                                    className="border border-emerald-200 rounded px-2 py-1 text-sm focus:border-emerald-500 outline-none"
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                      <table className="w-full text-left mb-4 max-w-full block md:table">
                                     <thead className="text-xs uppercase text-slate-700 bg-slate-100 border-b-2 border-slate-200 hidden md:table-header-group leading-tight">
                                       <tr>
                                         <th className="px-3 py-2 text-center min-w-[40px] whitespace-nowrap">
@@ -3798,6 +3881,15 @@ function EstimatorAppContent() {
                                                   onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                                 />
                                                 <div className="flex items-center">
+                                                  {!catalog.some(i => i.item_name.toLowerCase() === item.item_name.toLowerCase() && i.category === item.category && i.sub_category === item.sub_category) && (
+                                                    <button 
+                                                      onClick={() => saveToLibrary(item)} 
+                                                      className="text-amber-500 hover:text-amber-600 px-1" 
+                                                      title="Save to Library"
+                                                    >
+                                                      <Save size={14} />
+                                                    </button>
+                                                  )}
                                                   <button onClick={() => duplicateMaterial(item.item_id)} className="text-slate-400 hover:text-emerald-600 px-1" title="Duplicate Material">
                                                     <Copy size={14} />
                                                   </button>
@@ -3984,22 +4076,24 @@ function EstimatorAppContent() {
                                       })
                                     })()}
                                   </tbody>
-                                  </table>
-                                  </div>
-                                )}
+                                </table>
                               </div>
-                            );
-                          })}
+                            )}
                           </div>
-                        )}
+                        );
+                      })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                       </div>
-                    );
-                  })}
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })
+                );
+              })}
+            </div>
+          ))
         )}
       </div>
 
@@ -7410,6 +7504,197 @@ function EstimatorAppContent() {
       )}
 
       {/* Auto-save Templates Modal removed for local mode */}
+      {/* Material Library Modal */}
+      {materialLibraryModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
+          >
+            <div className="bg-slate-800 p-4 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <BookOpen className="text-amber-400" size={24} />
+                <h2 className="text-xl font-bold text-white tracking-tight">Material Library Management</h2>
+              </div>
+              <button onClick={() => setMaterialLibraryModalOpen(false)} className="text-slate-400 hover:text-white transition">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-6 flex-1 overflow-y-auto bg-slate-50">
+              <div className="flex flex-col md:flex-row gap-4 mb-6">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Search materials in library..." 
+                    value={libSearchQuery}
+                    onChange={(e) => setLibSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                  />
+                </div>
+                <button 
+                  onClick={() => { setEditingLibItem(null); setIsAddingLibItem(true); }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition shadow-sm"
+                >
+                  <Plus size={18} /> Add New Material
+                </button>
+              </div>
+              
+              <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase">
+                    <tr>
+                      <th className="px-4 py-3">Order</th>
+                      <th className="px-4 py-3">Building Type</th>
+                      <th className="px-4 py-3">Category</th>
+                      <th className="px-4 py-3">Sub-Category</th>
+                      <th className="px-4 py-3">Material Name</th>
+                      <th className="px-4 py-3">UOM</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {catalog.filter(i => {
+                      const q = libSearchQuery.toLowerCase();
+                      return i.item_name.toLowerCase().includes(q) || 
+                             i.category.toLowerCase().includes(q) || 
+                             i.sub_category.toLowerCase().includes(q) ||
+                             (i.building_type || "").toLowerCase().includes(q);
+                    }).sort((a, b) => {
+                      if (a.building_type !== b.building_type) return (a.building_type || "").localeCompare(b.building_type || "");
+                      if (a.category !== b.category) return a.category.localeCompare(b.category);
+                      if (a.sub_category !== b.sub_category) return a.sub_category.localeCompare(b.sub_category);
+                      return (a.material_order || 0) - (b.material_order || 0);
+                    }).map(item => (
+                      <tr key={item.item_id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-slate-500">{item.material_order || 0}</td>
+                        <td className="px-4 py-3 font-bold text-slate-700">{item.building_type || "Residential"}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.category}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.sub_category}</td>
+                        <td className="px-4 py-3 font-bold text-slate-900">{item.item_name}</td>
+                        <td className="px-4 py-3 uppercase text-slate-500">{item.uom}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => { setEditingLibItem(item); setIsAddingLibItem(false); }}
+                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition"
+                              title="Edit"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button 
+                              onClick={() => deleteFromLibrary(item.item_id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition"
+                              title="Delete"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex justify-end">
+              <button 
+                onClick={() => setMaterialLibraryModalOpen(false)}
+                className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-700 transition"
+              >
+                Close Library
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Add/Edit Library Item Modal */}
+      {(isAddingLibItem || editingLibItem) && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+          >
+            <div className="bg-slate-800 p-4 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">{isAddingLibItem ? 'Add New Material' : 'Edit Material'}</h3>
+              <button onClick={() => { setIsAddingLibItem(false); setEditingLibItem(null); }} className="text-slate-400 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const newItem: Partial<Item> = {
+                building_type: formData.get('building_type') as string,
+                category: formData.get('category') as string,
+                sub_category: formData.get('sub_category') as string,
+                sub_item_1: formData.get('sub_item_1') as string,
+                item_name: formData.get('item_name') as string,
+                uom: formData.get('uom') as string,
+                material_order: parseInt(formData.get('material_order') as string) || 0,
+                calc_factor_instruction: formData.get('calc_factor_instruction') as string,
+                notes: formData.get('notes') as string
+              };
+              
+              if (isAddingLibItem) {
+                saveToLibrary(newItem as Item);
+              } else if (editingLibItem) {
+                updateLibraryItem({ ...editingLibItem, ...newItem } as Item);
+              }
+              
+              setIsAddingLibItem(false);
+              setEditingLibItem(null);
+            }} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Building Type</label>
+                  <select name="building_type" defaultValue={editingLibItem?.building_type || "Residential"} className="w-full border border-slate-300 rounded p-2 text-sm">
+                    <option value="Residential">Residential</option>
+                    <option value="Commercial">Commercial</option>
+                    <option value="Industrial">Industrial</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Order</label>
+                  <input name="material_order" type="number" defaultValue={editingLibItem?.material_order || 0} className="w-full border border-slate-300 rounded p-2 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Category (L1)</label>
+                <input name="category" type="text" defaultValue={editingLibItem?.category || ""} required className="w-full border border-slate-300 rounded p-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Sub-Category (L2)</label>
+                <input name="sub_category" type="text" defaultValue={editingLibItem?.sub_category || ""} required className="w-full border border-slate-300 rounded p-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Sub-Item Group (L3)</label>
+                <input name="sub_item_1" type="text" defaultValue={editingLibItem?.sub_item_1 || ""} className="w-full border border-slate-300 rounded p-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Material Name</label>
+                <input name="item_name" type="text" defaultValue={editingLibItem?.item_name || ""} required className="w-full border border-slate-300 rounded p-2 text-sm font-bold" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">UOM</label>
+                  <input name="uom" type="text" defaultValue={editingLibItem?.uom || ""} className="w-full border border-slate-300 rounded p-2 text-sm" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={() => { setIsAddingLibItem(false); setEditingLibItem(null); }} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-lg">Cancel</button>
+                <button type="submit" className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-500 shadow-md">Save Material</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
       <CalculatorWidget 
         isOpen={calculatorOpen} 
         onClose={() => setCalculatorOpen(false)} 
