@@ -22,6 +22,7 @@ export default function MaterialLibrary() {
         materialName: editForm.materialName || '',
         uom: editForm.uom || '',
         materialFormula: editForm.materialFormula || '',
+        unit_price: editForm.unit_price || 0,
       });
       setItems([...items, newItem]);
       setIsCreating(false);
@@ -55,6 +56,7 @@ export default function MaterialLibrary() {
       materialName: '',
       uom: '',
       materialFormula: '',
+      unit_price: 0,
     });
   };
 
@@ -100,6 +102,7 @@ export default function MaterialLibrary() {
               <th className="p-3 font-medium">Building Type</th>
               <th className="p-3 font-medium">Order</th>
               <th className="p-3 font-medium">UOM</th>
+              <th className="p-3 font-medium">Unit Price</th>
               <th className="p-3 font-medium">Formula</th>
               <th className="p-3 font-medium text-right">Actions</th>
             </tr>
@@ -140,6 +143,16 @@ export default function MaterialLibrary() {
                     value={editForm.uom || ''} 
                     onChange={e => setEditForm({...editForm, uom: e.target.value})}
                     placeholder="UOM"
+                    className="w-full p-1 border rounded text-sm"
+                  />
+                </td>
+                <td className="p-2">
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={editForm.unit_price || ''} 
+                    onChange={e => setEditForm({...editForm, unit_price: Number(e.target.value)})}
+                    placeholder="Price"
                     className="w-full p-1 border rounded text-sm"
                   />
                 </td>
@@ -199,6 +212,15 @@ export default function MaterialLibrary() {
                     </td>
                     <td className="p-2">
                       <input 
+                        type="number" 
+                        step="0.01"
+                        value={editForm.unit_price || ''} 
+                        onChange={e => setEditForm({...editForm, unit_price: Number(e.target.value)})}
+                        className="w-full p-1 border rounded text-sm"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <input 
                         type="text" 
                         value={editForm.materialFormula || ''} 
                         onChange={e => setEditForm({...editForm, materialFormula: e.target.value})}
@@ -218,6 +240,7 @@ export default function MaterialLibrary() {
                     <td className="p-3 text-sm text-slate-600">{item.buildingType}</td>
                     <td className="p-3 text-sm text-slate-600">{item.order}</td>
                     <td className="p-3 text-sm text-slate-600">{item.uom}</td>
+                    <td className="p-3 text-sm text-slate-600">${item.unit_price || 0}</td>
                     <td className="p-3 text-sm text-slate-600 font-mono text-xs">{item.materialFormula}</td>
                     <td className="p-3 text-right">
                       <div className="flex justify-end gap-2">

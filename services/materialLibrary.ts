@@ -7,6 +7,7 @@ export interface MaterialLibraryItem {
   materialName: string;
   uom: string;
   materialFormula: string;
+  unit_price?: number;
   createdAt: number;
 }
 

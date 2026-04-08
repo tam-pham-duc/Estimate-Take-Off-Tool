@@ -3825,7 +3825,7 @@ function EstimatorAppContent() {
                                                     updateItemName(item.item_id, val);
                                                     
                                                     // Auto-fill from library if matched
-                                                    const libItem = libraryMaterials.find(m => m.name.toLowerCase() === val.toLowerCase());
+                                                    const libItem = libraryMaterials.find(m => m.materialName.toLowerCase() === val.toLowerCase());
                                                     if (libItem) {
                                                       const newCatalog = catalog.map(i => {
                                                         if (i.item_id === item.item_id) {
@@ -7517,7 +7517,7 @@ function EstimatorAppContent() {
 
       <datalist id="material-library-list">
         {libraryMaterials.map(m => (
-          <option key={m.id} value={m.name} />
+          <option key={m.id} value={m.materialName} />
         ))}
       </datalist>
 
