@@ -1,12 +1,16 @@
-import EstimatorApp from "@/components/EstimatorApp";
+"use client";
+
+import dynamic from "next/dynamic";
+
+const EstimatorApp = dynamic(() => import("@/components/EstimatorApp"), {
+  ssr: false,
+  loading: () => <p className="text-slate-500">Loading application...</p>
+});
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Construction Estimator</h1>
-        <EstimatorApp />
-      </div>
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 md:p-24 bg-gray-100">
+      <EstimatorApp />
     </main>
   );
 }
