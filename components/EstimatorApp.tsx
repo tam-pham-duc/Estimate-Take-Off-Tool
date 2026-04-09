@@ -991,6 +991,7 @@ function EstimatorAppContent() {
       templates,
       formulaTemplates,
       conditionalFormatRules,
+      entityData,
       projectName,
       clientName,
       clientEmail,
@@ -1033,6 +1034,7 @@ function EstimatorAppContent() {
       templates,
       formulaTemplates,
       conditionalFormatRules,
+      entityData,
       projectName,
       clientName,
       clientEmail,
@@ -1513,12 +1515,14 @@ function EstimatorAppContent() {
         
         if (!newData[itemId]) {
           let defaultOverage = "";
-          const match = item.calc_factor_instruction.match(/(\d+)%\s*overage/i);
+          const match = item.calc_factor_instruction?.match(/(\d+)%\s*overage/i);
           if (match) defaultOverage = match[1];
           newData[itemId] = {
+            ...item,
             in_scope: false, spec: "", qty: "", measured_qty: "",
             overage_pct: defaultOverage, order_qty: "", evidence: "",
-            qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA
+            qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA,
+            unit_price: "", total: 0
           };
         }
         
@@ -1574,12 +1578,14 @@ function EstimatorAppContent() {
         
         if (!newData[itemId]) {
           let defaultOverage = "";
-          const match = item.calc_factor_instruction.match(/(\d+)%\s*overage/i);
+          const match = item.calc_factor_instruction?.match(/(\d+)%\s*overage/i);
           if (match) defaultOverage = match[1];
           newData[itemId] = {
+            ...item,
             in_scope: true, spec: "", qty: "", measured_qty: "",
             overage_pct: defaultOverage, order_qty: "", evidence: "",
-            qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA
+            qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA,
+            unit_price: "", total: 0
           };
         }
         
@@ -1860,21 +1866,23 @@ function EstimatorAppContent() {
   const updateTakeoffData = (itemId: string, field: keyof TakeoffItem, value: any, instruction: string, itemName: string) => {
     const newData = { ...takeoffData };
     if (!newData[itemId]) {
+      const item = catalog.find(i => i.item_id === itemId);
       let defaultOverage = "";
       const match = instruction.match(/(\d+)%\s*overage/i);
       if (match) defaultOverage = match[1];
       newData[itemId] = {
+        ...(item || { item_id: itemId, item_name: itemName, uom: "", category: "", sub_category: "", sub_item_1: "" }),
         in_scope: false, spec: "", qty: "", measured_qty: "",
         overage_pct: defaultOverage, order_qty: "", evidence: "",
         qty_mode: 'auto', custom_formula: DEFAULT_QTY_FORMULA,
-        unit_price: ""
+        unit_price: "", total: 0
       };
     }
 
     let finalValue = value;
     if (['qty', 'order_qty', 'overage_pct', 'unit_price'].includes(field) && typeof value === 'string') {
       const evaluated = evaluateMath(value);
-      if (evaluated !== "") finalValue = evaluated;
+      finalValue = evaluated.toString();
     }
 
     newData[itemId] = { ...newData[itemId], [field]: finalValue };
@@ -2972,7 +2980,7 @@ function EstimatorAppContent() {
         setModSubItem1(item.sub_item_1 || "General");
         setModItemName(item.item_name);
         setModUOM(item.uom);
-        setModRule(item.calc_factor_instruction);
+        setModRule(item.calc_factor_instruction || "");
         setModNotes(item.notes || "");
       }
     } else {
@@ -3807,7 +3815,7 @@ function EstimatorAppContent() {
                                                   if (selectedItems.has(item.item_id) && selectedItems.size > 1) {
                                                     setScopeForSelected(newValue);
                                                   } else {
-                                                    updateTakeoffData(item.item_id, 'in_scope', newValue, item.calc_factor_instruction, item.item_name);
+                                                    updateTakeoffData(item.item_id, 'in_scope', newValue, item.calc_factor_instruction || "", item.item_name);
                                                   }
                                                 }}
                                               />
@@ -3899,7 +3907,7 @@ function EstimatorAppContent() {
                                                 placeholder="..." 
                                                 value={rowData.spec || ""} 
                                                 disabled={isDisabled} 
-                                                onChange={(val) => updateTakeoffData(item.item_id, 'spec', String(val), item.calc_factor_instruction, item.item_name)} 
+                                                onChange={(val) => updateTakeoffData(item.item_id, 'spec', String(val), item.calc_factor_instruction || "", item.item_name)} 
                                                 onBlur={() => recordHistory(`Updated spec for ${item.item_name}`)}
                                                 onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                               />
@@ -3912,7 +3920,7 @@ function EstimatorAppContent() {
                                                 placeholder="0" 
                                                 value={rowData.qty || ""} 
                                                 disabled={isDisabled} 
-                                                onChange={(val) => updateTakeoffData(item.item_id, 'qty', String(val), item.calc_factor_instruction, item.item_name)} 
+                                                onChange={(val) => updateTakeoffData(item.item_id, 'qty', String(val), item.calc_factor_instruction || "", item.item_name)} 
                                                 onBlur={() => recordHistory(`Updated qty for ${item.item_name}`)}
                                                 onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                               />
@@ -3926,7 +3934,7 @@ function EstimatorAppContent() {
                                                   placeholder={defaultOveragePct || "0"} 
                                                   value={rowData.overage_pct || ""} 
                                                   disabled={isDisabled} 
-                                                  onChange={(val) => updateTakeoffData(item.item_id, 'overage_pct', String(val), item.calc_factor_instruction, item.item_name)} 
+                                                  onChange={(val) => updateTakeoffData(item.item_id, 'overage_pct', String(val), item.calc_factor_instruction || "", item.item_name)} 
                                                   onBlur={() => recordHistory(`Updated overage for ${item.item_name}`)}
                                                   onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                                 />
@@ -3941,7 +3949,7 @@ function EstimatorAppContent() {
                                                 placeholder="0" 
                                                 value={rowData.order_qty || ""} 
                                                 disabled={isDisabled} 
-                                                onChange={(val) => updateTakeoffData(item.item_id, 'order_qty', String(val), item.calc_factor_instruction, item.item_name)} 
+                                                onChange={(val) => updateTakeoffData(item.item_id, 'order_qty', String(val), item.calc_factor_instruction || "", item.item_name)} 
                                                 onBlur={() => recordHistory(`Updated order qty for ${item.item_name}`)}
                                                 onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                               />
@@ -3983,7 +3991,7 @@ function EstimatorAppContent() {
                                                     placeholder="0.00" 
                                                     value={rowData.unit_price || ""} 
                                                     disabled={isDisabled} 
-                                                    onChange={(val) => updateTakeoffData(item.item_id, 'unit_price', String(val), item.calc_factor_instruction, item.item_name)} 
+                                                    onChange={(val) => updateTakeoffData(item.item_id, 'unit_price', String(val), item.calc_factor_instruction || "", item.item_name)} 
                                                     onBlur={() => recordHistory(`Updated unit price for ${item.item_name}`)}
                                                     onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                                   />
@@ -4022,7 +4030,7 @@ function EstimatorAppContent() {
                                                 placeholder="Ref..." 
                                                 value={rowData.evidence || ""} 
                                                 disabled={isDisabled} 
-                                                onChange={(val) => updateTakeoffData(item.item_id, 'evidence', String(val), item.calc_factor_instruction, item.item_name)} 
+                                                onChange={(val) => updateTakeoffData(item.item_id, 'evidence', String(val), item.calc_factor_instruction || "", item.item_name)} 
                                                 onBlur={() => recordHistory(`Updated evidence for ${item.item_name}`)}
                                                 onKeyDown={(e) => { if(e.key === 'Enter') e.currentTarget.blur(); }}
                                               />
