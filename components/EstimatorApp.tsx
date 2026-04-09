@@ -22,6 +22,8 @@ import { MatchDecorator, ViewPlugin, Decoration, DecorationSet, EditorView } fro
 import { MaterialLibraryService, MaterialLibraryItem } from '../services/materialLibrary';
 import MaterialLibrary from './MaterialLibrary';
 
+import { ErrorBoundary } from './ErrorBoundary';
+
 const formulaHighlightPlugin = ViewPlugin.fromClass(class {
   decorations: DecorationSet;
   constructor(view: EditorView) {
@@ -278,47 +280,6 @@ function DebouncedInput({
       onChange={e => setValue(e.target.value)} 
     />
   );
-}
-
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("ErrorBoundary caught an error", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      const errorMessage = this.state.error?.message || "Something went wrong.";
-
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-          <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center">
-            <div className="bg-red-100 text-red-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle size={32} />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Application Error</h1>
-            <p className="text-slate-600 mb-6">{errorMessage}</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition"
-            >
-              Reload Application
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
 }
 
 const CalculatorWidget = ({ isOpen, onClose, onInsert }: { isOpen: boolean, onClose: () => void, onInsert: (val: string) => void }) => {
@@ -1010,7 +971,7 @@ function EstimatorAppContent() {
   }, [
     isMounted, catalog, takeoffData, customVariables, dynamicColumns, 
     dataTables, clients, templates, formulaTemplates, 
-    conditionalFormatRules, projectName, clientName, clientEmail, 
+    conditionalFormatRules, entityData, projectName, clientName, clientEmail, 
     clientPhone, clientAddress, jobNotes, defaultOveragePct, savedJobs
   ]);
 

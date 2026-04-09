@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { MaterialLibraryItem, MaterialLibraryService } from '@/services/materialLibrary';
 import { Plus, Edit2, Trash2, X, Check, Search } from 'lucide-react';
 
 export default function MaterialLibrary() {
-  const [items, setItems] = useState<MaterialLibraryItem[]>([]);
+  const [items, setItems] = useState<MaterialLibraryItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      return MaterialLibraryService.getAll();
+    }
+    return [];
+  });
   const [search, setSearch] = useState('');
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<MaterialLibraryItem>>({});
   const [isCreating, setIsCreating] = useState(false);
-
-  useEffect(() => {
-    setItems(MaterialLibraryService.getAll());
-  }, []);
 
   const handleSave = () => {
     if (isCreating) {
